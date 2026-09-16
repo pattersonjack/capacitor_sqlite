@@ -7,12 +7,31 @@
 //
 
 import Foundation
+import CoreFoundation
 import SQLCipher
 
 let SQLITETRANSIENT = unsafeBitCast(-1, to:
                                         sqlite3_destructor_type.self)
 
 class UtilsBinding {
+    /// Decode the same Buffer-shaped JSON value used by the TypeScript and Android APIs.
+    /// NSNumber bridging alone accepts booleans as bytes, so validate before conversion.
+    class func bufferBytes(_ buffer: [String: Any]) throws -> [UInt8] {
+        guard buffer["type"] as? String == "Buffer", let values = buffer["data"] as? [Any] else {
+            throw UtilsSQLCipherError.querySQL(message: "Invalid Buffer parameter")
+        }
+        return try values.map { value in
+            guard let number = value as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite,
+                  number.doubleValue.rounded() == number.doubleValue,
+                  number.doubleValue >= 0, number.doubleValue <= 255 else {
+                throw UtilsSQLCipherError.querySQL(message: "Buffer bytes must be integers from 0 to 255")
+            }
+            return UInt8(number.intValue)
+        }
+    }
+
     class func bindValues( handle: OpaquePointer?, values: [Any])
     -> String {
         var message: String = ""
@@ -66,9 +85,14 @@ class UtilsBinding {
             if value {bInt = Int32(1)}
             sqlite3_bind_int(handle, Int32(idx), Int32(bInt))
         } else if let value = value as? [UInt8] {
-            let data: Data = Data(value)
-            sqlite3_bind_blob(handle, Int32(idx), data.bytes,
-                              Int32(data.bytes.count), SQLITETRANSIENT)
+            if value.isEmpty {
+                sqlite3_bind_zeroblob(handle, Int32(idx), 0)
+            } else {
+                _ = value.withUnsafeBytes { data in
+                    sqlite3_bind_blob(handle, Int32(idx), data.baseAddress,
+                                      Int32(data.count), SQLITETRANSIENT)
+                }
+            }
         } else if let value = value {
             if let dict = value as? [String: Int] {
                 let sortedValues = extractSortedValues(from: dict)

@@ -885,6 +885,8 @@ enum CapacitorSQLiteError: Error {
                             val.append(obj)
                         } else if value is NSNull {
                             val.append(value)
+                        } else if let obj = value as? [String: Any], obj["type"] as? String == "Buffer" {
+                            val.append(try UtilsBinding.bufferBytes(obj))
                         } else if let obj = value as? [String: Any] {
                             if var keys = Array(obj.keys) as? [String] {
                                 if #available(iOS 15.0, *) {
@@ -1039,6 +1041,9 @@ enum CapacitorSQLiteError: Error {
             let msg = "not allowed in read-only mode"
             throw CapacitorSQLiteError.failed(message: msg)
         }
+        guard dbDict["RO_\(mDbName)"]?.isDBOpen() != true else {
+            throw CapacitorSQLiteError.failed(message: "Close the read-only connection before deleting the database")
+        }
         do {
             if !mDb.isDBOpen() {
                 // check the state of the DB
@@ -1051,7 +1056,7 @@ enum CapacitorSQLiteError: Error {
                     var msg = "Cannot delete an Encrypted database with "
                     msg += "No Encryption set in capacitor.config"
                     throw CapacitorSQLiteError.failed(message: msg)
-                } else if state.rawValue == "UNENCRYPTED" {
+                } else if state == .UNENCRYPTED || state == .DOESNOTEXIST {
                     do {
                         try UtilsSQLCipher.deleteDB(databaseLocation: databaseLocation,
                                                     databaseName: "\(mDbName)SQLite.db")

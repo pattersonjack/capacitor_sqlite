@@ -770,7 +770,11 @@ class UtilsSQLCipher {
                 for index in 0..<sqlite3_column_count(statement) {
                     switch sqlite3_column_type(statement, index) {
                     case SQLITE_INTEGER:
-                        row.append(sqlite3_column_int64(statement, index))
+                        let value = sqlite3_column_int64(statement, index)
+                        guard value >= -9007199254740991, value <= 9007199254740991 else {
+                            throw UtilsSQLCipherError.querySQL(message: "Integer result exceeds JavaScript's safe range")
+                        }
+                        row.append(value)
                     case SQLITE_FLOAT:
                         row.append(sqlite3_column_double(statement, index))
                     case SQLITE_TEXT:
@@ -825,21 +829,43 @@ class UtilsSQLCipher {
             throw UtilsSQLCipherError.querySQL(message: "Database not opened")
         }
 
-        var prepared: OpaquePointer?
-        defer { sqlite3_finalize(prepared) }
-        guard sqlite3_prepare_v2(mDB.mDb, sql, -1, &prepared, nil) == SQLITE_OK,
-              let statement = prepared else {
-            throw UtilsSQLCipherError.querySQL(message: String(cString: sqlite3_errmsg(mDB.mDb)))
+        guard !sql.utf8.contains(0) else {
+            throw UtilsSQLCipherError.querySQL(message: "SQL must not contain NUL")
         }
-
-        guard sqlite3_bind_parameter_count(statement) == Int32(values.count) else {
-            throw UtilsSQLCipherError.querySQL(message: "Parameter count does not match the statement")
+        // SQLite owns statement boundaries. Keep its tail pointer inside the C string lifetime.
+        return try sql.withCString { text in
+            var prepared: OpaquePointer?
+            var tail: UnsafePointer<CChar>?
+            defer { sqlite3_finalize(prepared) }
+            guard sqlite3_prepare_v2(mDB.mDb, text, -1, &prepared, &tail) == SQLITE_OK,
+                  let statement = prepared else {
+                throw UtilsSQLCipherError.querySQL(message: String(cString: sqlite3_errmsg(mDB.mDb)))
+            }
+            if let tail = tail {
+                var extra: OpaquePointer?
+                // Deny operations while SQLite parses the tail: some PRAGMAs take effect
+                // during prepare. This private connection has no persistent authorizer.
+                guard sqlite3_set_authorizer(mDB.mDb, { _, _, _, _, _, _ in SQLITE_DENY }, nil) == SQLITE_OK else {
+                    throw UtilsSQLCipherError.querySQL(message: "Could not validate statement tail")
+                }
+                defer {
+                    sqlite3_finalize(extra)
+                    sqlite3_set_authorizer(mDB.mDb, nil, nil)
+                }
+                // A comment/whitespace-only tail prepares no statement. Reject extra or invalid
+                // SQL before stepping the first statement, so a rejected call cannot write.
+                guard sqlite3_prepare_v2(mDB.mDb, tail, -1, &extra, nil) == SQLITE_OK, extra == nil else {
+                    throw UtilsSQLCipherError.querySQL(message: "Expected exactly one SQL statement")
+                }
+            }
+            guard sqlite3_bind_parameter_count(statement) == Int32(values.count) else {
+                throw UtilsSQLCipherError.querySQL(message: "Parameter count does not match the statement")
+            }
+            for (offset, value) in values.enumerated() {
+                try bindStatementValue(statement, index: Int32(offset + 1), value: value)
+            }
+            return try body(statement)
         }
-        for (offset, value) in values.enumerated() {
-            try bindStatementValue(statement, index: Int32(offset + 1), value: value)
-        }
-
-        return try body(statement)
     }
 
     private class func bindStatementValue(_ statement: OpaquePointer, index: Int32, value: Any) throws {
@@ -853,12 +879,15 @@ class UtilsSQLCipher {
                 throw UtilsSQLCipherError.querySQL(message: "Non-finite parameter")
             }
             if number.doubleValue.rounded() == number.doubleValue {
+                guard abs(number.doubleValue) <= 9007199254740991 else {
+                    throw UtilsSQLCipherError.querySQL(message: "Integer parameter exceeds JavaScript's safe range")
+                }
                 status = sqlite3_bind_int64(statement, index, number.int64Value)
             } else {
                 status = sqlite3_bind_double(statement, index, number.doubleValue)
             }
-        } else if let buffer = value as? [String: Any],
-                  buffer["type"] as? String == "Buffer", let bytes = buffer["data"] as? [UInt8] {
+        } else if let buffer = value as? [String: Any] {
+            let bytes = try UtilsBinding.bufferBytes(buffer)
             if bytes.isEmpty {
                 status = sqlite3_bind_zeroblob(statement, index, 0)
             } else {
@@ -916,7 +945,9 @@ class UtilsSQLCipher {
                                                             index)
                     rowData[String(cString: name)] = val
                 case SQLITE_BLOB:
-                    if let dataBlob = sqlite3_column_blob(handle,
+                    if sqlite3_column_bytes(handle, index) == 0 {
+                        rowData[String(cString: name)] = [UInt8]()
+                    } else if let dataBlob = sqlite3_column_blob(handle,
                                                           index) {
                         let dataBlobLength = sqlite3_column_bytes(
                             handle, index)
@@ -1031,17 +1062,16 @@ class UtilsSQLCipher {
             let dir: URL = try UtilsFile
                 .getFolderURL(folderPath: databaseLocation)
 
-            let fileURL = dir.appendingPathComponent(databaseName)
-            let isFileExists = FileManager.default.fileExists(
-                atPath: fileURL.path)
-            if isFileExists {
-                do {
-                    try FileManager.default.removeItem(at: fileURL)
-                } catch let error {
-                    var msg: String = "Error: deleteDB: "
-                    msg.append(" \(error.localizedDescription)")
-                    throw UtilsSQLCipherError.deleteDB(
-                        message: msg)
+            // The read-only encryption-state probe can recreate WAL/SHM after close.
+            // Delete only this closed database's exact SQLite companion files as well.
+            for suffix in ["", "-wal", "-shm", "-journal"] {
+                let fileURL = dir.appendingPathComponent(databaseName + suffix)
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    do {
+                        try FileManager.default.removeItem(at: fileURL)
+                    } catch {
+                        throw UtilsSQLCipherError.deleteDB(message: "Error deleting \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                    }
                 }
             }
         } catch UtilsFileError.getFolderURLFailed(let message) {
