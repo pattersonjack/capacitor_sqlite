@@ -12,6 +12,7 @@ import static com.getcapacitor.community.database.sqlite.SQLite.UtilsSQLStatemen
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.database.DatabaseUtils;
 import android.os.Build;
 import android.util.Log;
@@ -1020,12 +1021,20 @@ public class Database {
     public JSObject executeStatement(String statement, ArrayList<Object> values) throws Exception {
         if (_db == null || !_db.isOpen()) throw new Exception("Database not opened");
 
+        Object[] parameters = values.toArray();
+        for (int index = 0; index < parameters.length; index++) {
+            if (parameters[index] == JSONObject.NULL) parameters[index] = null;
+        }
+
+        // SupportSQLiteStatement does not expose result metadata. SQLCipher's cursor
+        // provides prepared column names without stepping; never move it or request rows.
+        // execute() alone reports SQLITE_ROW after a RETURNING write has already happened.
+        try (Cursor metadata = _db.query(statement, parameters)) {
+            if (metadata.getColumnCount() != 0) throw new Exception("Use queryValues for statements returning rows");
+        }
+
         int before = _uSqlite.dbChanges(_db);
         try (SupportSQLiteStatement prepared = _db.compileStatement(statement)) {
-            Object[] parameters = values.toArray();
-            for (int index = 0; index < parameters.length; index++) {
-                if (parameters[index] == JSONObject.NULL) parameters[index] = null;
-            }
             SimpleSQLiteQuery.bind(prepared, parameters);
             prepared.execute();
         }
