@@ -273,7 +273,14 @@ export class CapacitorSQLiteWeb extends WebPlugin implements CapacitorSQLitePlug
       throw new Error(`${err}`);
     }
   }
+  async executeStatement(): Promise<capSQLiteChanges> {
+    throw this.unimplemented('Unmodified single-statement execution is not supported by the web implementation.');
+  }
+
   async query(options: capSQLiteQueryOptions): Promise<capSQLiteValues> {
+    if (options.rowMode !== undefined && options.rowMode !== 'object') {
+      throw this.unimplemented('Ordered query results are not supported by the web implementation.');
+    }
     this.ensureJeepSqliteIsAvailable();
     this.ensureWebstoreIsOpen();
 

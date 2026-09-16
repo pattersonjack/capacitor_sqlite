@@ -758,6 +758,123 @@ class UtilsSQLCipher {
         }
     }
 
+    // MARK: - Unmodified statements and ordered results
+
+    class func queryArraySQL(mDB: Database, sql: String, values: [Any]) throws -> [[Any]] {
+        return try withBoundStatement(mDB: mDB, sql: sql, values: values) { statement in
+            var rows: [[Any]] = []
+            var status = sqlite3_step(statement)
+
+            while status == SQLITE_ROW {
+                var row: [Any] = []
+                for index in 0..<sqlite3_column_count(statement) {
+                    switch sqlite3_column_type(statement, index) {
+                    case SQLITE_INTEGER:
+                        row.append(sqlite3_column_int64(statement, index))
+                    case SQLITE_FLOAT:
+                        row.append(sqlite3_column_double(statement, index))
+                    case SQLITE_TEXT:
+                        let count = Int(sqlite3_column_bytes(statement, index))
+                        let bytes = UnsafeBufferPointer(start: sqlite3_column_text(statement, index), count: count)
+                        row.append(String(decoding: bytes, as: UTF8.self))
+                    case SQLITE_BLOB:
+                        let count = Int(sqlite3_column_bytes(statement, index))
+                        if count == 0 {
+                            row.append([UInt8]())
+                        } else if let bytes = sqlite3_column_blob(statement, index) {
+                            row.append(Array(Data(bytes: bytes, count: count)))
+                        } else {
+                            throw UtilsSQLCipherError.querySQL(message: "Could not read BLOB")
+                        }
+                    case SQLITE_NULL:
+                        row.append(NSNull())
+                    default:
+                        throw UtilsSQLCipherError.querySQL(message: "Unsupported SQLite column type")
+                    }
+                }
+                rows.append(row)
+                status = sqlite3_step(statement)
+            }
+
+            guard status == SQLITE_DONE else {
+                throw UtilsSQLCipherError.querySQL(message: String(cString: sqlite3_errmsg(mDB.mDb)))
+            }
+            return rows
+        }
+    }
+
+    class func executeStatement(mDB: Database, sql: String, values: [Any]) throws -> [String: Any] {
+        return try withBoundStatement(mDB: mDB, sql: sql, values: values) { statement in
+            guard sqlite3_column_count(statement) == 0 else {
+                throw UtilsSQLCipherError.querySQL(message: "Use queryValues for statements returning rows")
+            }
+
+            let before = sqlite3_total_changes(mDB.mDb)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw UtilsSQLCipherError.querySQL(message: String(cString: sqlite3_errmsg(mDB.mDb)))
+            }
+
+            return ["changes": sqlite3_total_changes(mDB.mDb) - before,
+                    "lastId": sqlite3_last_insert_rowid(mDB.mDb)]
+        }
+    }
+
+    private class func withBoundStatement<T>(mDB: Database, sql: String, values: [Any],
+                                             body: (OpaquePointer) throws -> T) throws -> T {
+        guard mDB.isDBOpen() else {
+            throw UtilsSQLCipherError.querySQL(message: "Database not opened")
+        }
+
+        var prepared: OpaquePointer?
+        defer { sqlite3_finalize(prepared) }
+        guard sqlite3_prepare_v2(mDB.mDb, sql, -1, &prepared, nil) == SQLITE_OK,
+              let statement = prepared else {
+            throw UtilsSQLCipherError.querySQL(message: String(cString: sqlite3_errmsg(mDB.mDb)))
+        }
+
+        guard sqlite3_bind_parameter_count(statement) == Int32(values.count) else {
+            throw UtilsSQLCipherError.querySQL(message: "Parameter count does not match the statement")
+        }
+        for (offset, value) in values.enumerated() {
+            try bindStatementValue(statement, index: Int32(offset + 1), value: value)
+        }
+
+        return try body(statement)
+    }
+
+    private class func bindStatementValue(_ statement: OpaquePointer, index: Int32, value: Any) throws {
+        let status: Int32
+        if value is NSNull {
+            status = sqlite3_bind_null(statement, index)
+        } else if let text = value as? String {
+            status = sqlite3_bind_text(statement, index, text, Int32(text.utf8.count), SQLITETRANSIENT)
+        } else if let number = value as? NSNumber {
+            guard number.doubleValue.isFinite else {
+                throw UtilsSQLCipherError.querySQL(message: "Non-finite parameter")
+            }
+            if number.doubleValue.rounded() == number.doubleValue {
+                status = sqlite3_bind_int64(statement, index, number.int64Value)
+            } else {
+                status = sqlite3_bind_double(statement, index, number.doubleValue)
+            }
+        } else if let buffer = value as? [String: Any],
+                  buffer["type"] as? String == "Buffer", let bytes = buffer["data"] as? [UInt8] {
+            if bytes.isEmpty {
+                status = sqlite3_bind_zeroblob(statement, index, 0)
+            } else {
+                status = bytes.withUnsafeBytes { data in
+                    sqlite3_bind_blob(statement, index, data.baseAddress, Int32(data.count), SQLITETRANSIENT)
+                }
+            }
+        } else {
+            throw UtilsSQLCipherError.querySQL(message: "Unsupported statement parameter")
+        }
+
+        guard status == SQLITE_OK else {
+            throw UtilsSQLCipherError.querySQL(message: "Parameter binding failed (\(status))")
+        }
+    }
+
     // MARK: - FetchColumnInfo
 
     // swiftlint:disable function_body_length

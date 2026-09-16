@@ -966,6 +966,10 @@ public class Database {
      * @return
      */
     public JSArray selectSQL(String statement, ArrayList<Object> values) throws Exception {
+        return selectSQL(statement, values, false);
+    }
+
+    public JSArray selectSQL(String statement, ArrayList<Object> values, boolean arrayMode) throws Exception {
         JSArray retArray = new JSArray();
         SQLiteCursor c = null;
         if (_db == null) {
@@ -975,39 +979,34 @@ public class Database {
             c = (SQLiteCursor) _db.query(statement, values.toArray(new Object[0]));
             while (c.moveToNext()) {
                 JSObject row = new JSObject();
+                JSArray orderedRow = new JSArray();
                 for (int i = 0; i < c.getColumnCount(); i++) {
                     String colName = c.getColumnName(i);
-                    int index = c.getColumnIndex(colName);
                     int type = c.getType(i);
+                    Object value;
                     switch (type) {
                         case FIELD_TYPE_STRING:
-                            row.put(colName, c.getString(index));
+                            value = c.getString(i);
                             break;
                         case FIELD_TYPE_INTEGER:
-                            row.put(colName, c.getLong(index));
+                            value = c.getLong(i);
                             break;
                         case FIELD_TYPE_FLOAT:
-                            row.put(colName, c.getDouble(index));
+                            value = c.getDouble(i);
                             break;
                         case FIELD_TYPE_BLOB:
-                            byte[] blobVal = c.getBlob(index);
-                            JSArray arr = this._uSqlite.ByteArrayToJSArray(blobVal);
-                            row.put(colName, arr);
-                            /*                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                row.put(colName, Base64.getEncoder().encodeToString(c.getBlob(index)));
-                            } else {
-                                row.put(colName, JSONObject.NULL);
-                            }
-*/
+                            value = this._uSqlite.ByteArrayToJSArray(c.getBlob(i));
                             break;
                         case FIELD_TYPE_NULL:
-                            row.put(colName, JSONObject.NULL);
+                            value = JSONObject.NULL;
                             break;
                         default:
-                            break;
+                            throw new Exception("Unsupported SQLite column type: " + type);
                     }
+                    if (arrayMode) orderedRow.put(value);
+                    else row.put(colName, value);
                 }
-                retArray.put(row);
+                retArray.put(arrayMode ? orderedRow : row);
             }
             return retArray;
         } catch (Exception e) {
@@ -1015,6 +1014,26 @@ public class Database {
         } finally {
             if (c != null) c.close();
         }
+    }
+
+    /** Execute a single statement without the legacy sync/RETURNING transformations. */
+    public JSObject executeStatement(String statement, ArrayList<Object> values) throws Exception {
+        if (_db == null || !_db.isOpen()) throw new Exception("Database not opened");
+
+        int before = _uSqlite.dbChanges(_db);
+        try (SupportSQLiteStatement prepared = _db.compileStatement(statement)) {
+            Object[] parameters = values.toArray();
+            for (int index = 0; index < parameters.length; index++) {
+                if (parameters[index] == JSONObject.NULL) parameters[index] = null;
+            }
+            SimpleSQLiteQuery.bind(prepared, parameters);
+            prepared.execute();
+        }
+
+        JSObject result = new JSObject();
+        result.put("changes", _uSqlite.dbChanges(_db) - before);
+        result.put("lastId", _uSqlite.dbLastId(_db));
+        return result;
     }
 
     /**

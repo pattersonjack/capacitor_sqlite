@@ -56,7 +56,8 @@ public class CapacitorSQLitePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "beginTransaction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "commitTransaction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "rollbackTransaction", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "isTransactionActive", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "isTransactionActive", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "executeStatement", returnType: CAPPluginReturnPromise)
     ]
     private var implementation: CapacitorSQLite?
     private let modeList: [String] = ["no-encryption", "encryption", "secret",
@@ -1033,6 +1034,25 @@ public class CapacitorSQLitePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     // swiftlint:enable function_body_length
 
+    @objc func executeStatement(_ call: CAPPluginCall) {
+        guard let database = call.getString("database"),
+              let statement = call.getString("statement"),
+              !statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let values = (call.options["values"] ?? []) as? [Any] else {
+            call.reject("ExecuteStatement: Provide a database, a non-empty statement and an array of values")
+            return
+        }
+        do {
+            guard let result = try implementation?.executeStatement(database, statement: statement, values: values) else {
+                call.reject("ExecuteStatement: Plugin unavailable")
+                return
+            }
+            retHandler.rChanges(call: call, ret: result)
+        } catch {
+            call.reject("ExecuteStatement: \(error)")
+        }
+    }
+
     // MARK: - Query
 
     // swiftlint:disable function_body_length
@@ -1064,11 +1084,17 @@ public class CapacitorSQLitePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         let readOnly: Bool = call.getBool("readonly") ?? false
         do {
-            if let res: [[String: Any]] = try
+            let rowMode = call.getString("rowMode") ?? "object"
+            guard rowMode == "object" || rowMode == "array" else {
+                call.reject("Query: rowMode must be 'object' or 'array'")
+                return
+            }
+            if let res: [Any] = try
                 implementation?.query(dbName,
                                       statement: statement,
                                       values: values,
-                                      readonly: readOnly) {
+                                      readonly: readOnly,
+                                      rowMode: rowMode) {
                 retHandler.rValues(call: call, ret: res)
                 return
             } else {

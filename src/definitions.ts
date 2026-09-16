@@ -205,6 +205,13 @@ export interface CapacitorSQLitePlugin {
    */
   query(options: capSQLiteQueryOptions): Promise<capSQLiteValues>;
   /**
+   * Execute one statement exactly as supplied, with bound parameters.
+   * No implicit transaction, sync-table rewriting or RETURNING emulation is applied.
+   * Use query with rowMode 'array' for statements returning rows.
+   * Supported on Android and iOS.
+   */
+  executeStatement(options: capSQLiteStatementOptions): Promise<capSQLiteChanges>;
+  /**
    * Check if a SQLite database exists with opened connection
    * @param options: capSQLiteOptions
    * @returns Promise<capSQLiteResult>
@@ -644,6 +651,12 @@ export interface capSQLiteRunOptions {
 }
 export interface capSQLiteQueryOptions {
   /**
+   * Result representation. Defaults to 'object' for compatibility.
+   * 'array' preserves SQL column order and duplicate names, with no iOS metadata row.
+   * Array mode is supported on Android and iOS; other platforms reject it explicitly.
+   */
+  rowMode?: 'object' | 'array';
+  /**
    * The database name
    */
   database?: string;
@@ -671,6 +684,19 @@ export interface capSQLiteQueryOptions {
    */
   isSQL92?: boolean;
 }
+export interface capSQLiteStatementOptions {
+  database: string;
+  statement: string;
+  values?: any[];
+}
+
+/** Bridge representation of a scalar; BLOBs are unsigned byte arrays. */
+export type SQLiteColumnValue = string | number | null | number[];
+
+export interface capSQLiteArrayValues {
+  values: SQLiteColumnValue[][];
+}
+
 export interface capTask {
   /**
    * define task for executeTransaction
@@ -1842,6 +1868,10 @@ export interface ISQLiteDBConnection {
    * @since 2.9.0 refactor
    */
   query(statement: string, values?: any[], isSQL92?: boolean): Promise<DBSQLiteValues>;
+  /** Query rows in SQL column order, preserving duplicate names. Android and iOS only. */
+  queryValues(statement: string, values?: any[]): Promise<capSQLiteArrayValues>;
+  /** Execute one unchanged statement without starting an implicit transaction. Android and iOS only. */
+  executeStatement(statement: string, values?: any[]): Promise<capSQLiteChanges>;
   /**
    * Execute SQLite DB Connection Raw Statement
    * @param statement
@@ -2102,6 +2132,27 @@ export class SQLiteDBConnection implements ISQLiteDBConnection {
       return Promise.reject(err);
     }
   }
+  async queryValues(statement: string, values: any[] = []): Promise<capSQLiteArrayValues> {
+    const result = await this.sqlite.query({
+      database: this.dbName,
+      statement,
+      values,
+      readonly: this.readonly,
+      rowMode: 'array',
+    });
+
+    if (!Array.isArray(result.values) || !result.values.every(Array.isArray)) {
+      throw new Error('Query: The native plugin did not return ordered rows. Rebuild with array-mode support.');
+    }
+    return { values: result.values };
+  }
+
+  async executeStatement(statement: string, values: any[] = []): Promise<capSQLiteChanges> {
+    if (this.readonly) throw new Error('not allowed in read-only mode');
+
+    return this.sqlite.executeStatement({ database: this.dbName, statement, values });
+  }
+
   async query(statement: string, values?: any[], isSQL92 = true): Promise<DBSQLiteValues> {
     let res: any;
     try {

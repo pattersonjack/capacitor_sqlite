@@ -377,7 +377,14 @@ export class CapacitorSQLite implements CapacitorSQLitePlugin {
     }
   }
 
+  async executeStatement(): Promise<capSQLiteChanges> {
+    throw new Error('Unmodified single-statement execution is not supported by the Electron implementation.');
+  }
+
   async query(options: capSQLiteQueryOptions): Promise<capSQLiteValues> {
+    if (options.rowMode !== undefined && options.rowMode !== 'object') {
+      throw new Error('Ordered query results are not supported by the Electron implementation.');
+    }
     const dbName: string = this.getOptionValue(options, 'database');
     const statement: string = this.getOptionValue(options, 'statement');
     const values: any[] = this.getOptionValue(options, 'values', []);

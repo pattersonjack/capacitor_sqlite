@@ -938,7 +938,7 @@ enum CapacitorSQLiteError: Error {
     // MARK: - Query
 
     @objc func query(_ dbName: String, statement: String,
-                     values: [Any], readonly: Bool) throws -> [[String: Any]] {
+                     values: [Any], readonly: Bool, rowMode: String = "object") throws -> [Any] {
         guard isInit else {
             throw CapacitorSQLiteError.failed(message: initMessage)
         }
@@ -950,6 +950,9 @@ enum CapacitorSQLiteError: Error {
         }
         if mDb.isDBOpen() {
             do {
+                if rowMode == "array" {
+                    return try UtilsSQLCipher.queryArraySQL(mDB: mDb, sql: statement, values: values)
+                }
                 let res: [[String: Any]] = try mDb
                     .selectSQL(sql: statement, values: values)
                 return res
@@ -963,6 +966,17 @@ enum CapacitorSQLiteError: Error {
             let msg = "Database \(mDbName) not opened"
             throw CapacitorSQLiteError.failed(message: msg)
         }
+    }
+
+    @objc func executeStatement(_ dbName: String, statement: String, values: [Any]) throws -> [String: Any] {
+        guard isInit else {
+            throw CapacitorSQLiteError.failed(message: initMessage)
+        }
+        let name = CapacitorSQLite.getDatabaseName(dbName: dbName)
+        guard let database = dbDict["RW_\(name)"], database.isDBOpen() else {
+            throw CapacitorSQLiteError.failed(message: "No open read-write connection for database \(name)")
+        }
+        return try UtilsSQLCipher.executeStatement(mDB: database, sql: statement, values: values)
     }
 
     // MARK: - isDBExists

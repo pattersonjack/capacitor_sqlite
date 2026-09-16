@@ -1068,6 +1068,26 @@ public class CapacitorSQLitePlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void executeStatement(PluginCall call) {
+        String database = call.getString("database");
+        String statement = call.getString("statement");
+        JSArray values = call.getArray("values", new JSArray());
+        if (database == null || statement == null || statement.trim().isEmpty() || values == null) {
+            call.reject("ExecuteStatement: Provide a database, a non-empty statement and an array of values");
+            return;
+        }
+        if (implementation == null) {
+            call.reject(loadMessage);
+            return;
+        }
+        try {
+            rHandler.retChanges(call, implementation.executeStatement(database, statement, values), null);
+        } catch (Exception error) {
+            call.reject("ExecuteStatement: " + error.getMessage());
+        }
+    }
+
     /**
      * Query Method
      * Execute an sql query
@@ -1102,7 +1122,12 @@ public class CapacitorSQLitePlugin extends Plugin {
         Boolean readOnly = call.getBoolean("readonly", false);
         if (implementation != null) {
             try {
-                JSArray res = implementation.query(dbName, statement, values, readOnly);
+                String rowMode = call.getString("rowMode", "object");
+                if (!"object".equals(rowMode) && !"array".equals(rowMode)) {
+                    call.reject("Query: rowMode must be 'object' or 'array'");
+                    return;
+                }
+                JSArray res = implementation.query(dbName, statement, values, readOnly, "array".equals(rowMode));
                 rHandler.retValues(call, res, null);
             } catch (Exception e) {
                 String msg = "Query: " + e.getMessage();

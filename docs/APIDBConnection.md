@@ -22,6 +22,8 @@
 * [`enableLoadExtension(...)`](#enableloadextension)
 * [`execute(...)`](#execute)
 * [`query(...)`](#query)
+* [`queryValues(...)`](#queryvalues)
+* [`executeStatement(...)`](#executestatement)
 * [`run(...)`](#run)
 * [`executeSet(...)`](#executeset)
 * [`isExists()`](#isexists)
@@ -36,6 +38,7 @@
 * [`deleteExportedRows()`](#deleteexportedrows)
 * [`executeTransaction(...)`](#executetransaction)
 * [Interfaces](#interfaces)
+* [Type Aliases](#type-aliases)
 
 </docgen-index>
 
@@ -264,6 +267,42 @@ Execute SQLite DB Connection Query
 **Returns:** <code>Promise&lt;<a href="#dbsqlitevalues">DBSQLiteValues</a>&gt;</code>
 
 **Since:** 2.9.0 refactor
+
+--------------------
+
+
+### queryValues(...)
+
+```typescript
+queryValues(statement: string, values?: any[] | undefined) => Promise<capSQLiteArrayValues>
+```
+
+Query rows in SQL column order, preserving duplicate names. Android and iOS only.
+
+| Param           | Type                |
+| --------------- | ------------------- |
+| **`statement`** | <code>string</code> |
+| **`values`**    | <code>any[]</code>  |
+
+**Returns:** <code>Promise&lt;<a href="#capsqlitearrayvalues">capSQLiteArrayValues</a>&gt;</code>
+
+--------------------
+
+
+### executeStatement(...)
+
+```typescript
+executeStatement(statement: string, values?: any[] | undefined) => Promise<capSQLiteChanges>
+```
+
+Execute one unchanged statement without starting an implicit transaction. Android and iOS only.
+
+| Param           | Type                |
+| --------------- | ------------------- |
+| **`statement`** | <code>string</code> |
+| **`values`**    | <code>any[]</code>  |
+
+**Returns:** <code>Promise&lt;<a href="#capsqlitechanges">capSQLiteChanges</a>&gt;</code>
 
 --------------------
 
@@ -535,6 +574,13 @@ executeTransaction(txn: capTask[], isSQL92: boolean) => Promise<capSQLiteChanges
 | **`values`** | <code>any[]</code> | the data values list as an Array |
 
 
+#### capSQLiteArrayValues
+
+| Prop         | Type                               |
+| ------------ | ---------------------------------- |
+| **`values`** | <code>SQLiteColumnValue[][]</code> |
+
+
 #### capSQLiteSet
 
 | Prop            | Type                | Description                      |
@@ -617,5 +663,15 @@ executeTransaction(txn: capTask[], isSQL92: boolean) => Promise<capSQLiteChanges
 | --------------- | ------------------- | --------------------------------------------------- |
 | **`statement`** | <code>string</code> | A SQLite statement                                  |
 | **`values`**    | <code>any[]</code>  | A set of values to bind to the statement (optional) |
+
+
+### Type Aliases
+
+
+#### SQLiteColumnValue
+
+Bridge representation of a scalar; BLOBs are unsigned byte arrays.
+
+<code>string | number | null | number[]</code>
 
 </docgen-api>

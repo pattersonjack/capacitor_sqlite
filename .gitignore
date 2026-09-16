@@ -1,5 +1,6 @@
 # node files
-dist
+# This maintained fork ships its built JS/types in commit-pinned archives.
+# Regenerate with npm run build when changing the TypeScript API.
 node_modules
 
 # iOS files

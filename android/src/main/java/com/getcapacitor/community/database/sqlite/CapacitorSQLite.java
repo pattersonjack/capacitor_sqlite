@@ -996,6 +996,10 @@ public class CapacitorSQLite {
      * @throws Exception message
      */
     public JSArray query(String dbName, String statement, JSArray values, Boolean readonly) throws Exception {
+        return query(dbName, statement, values, readonly, false);
+    }
+
+    public JSArray query(String dbName, String statement, JSArray values, Boolean readonly, boolean arrayMode) throws Exception {
         JSArray res;
         dbName = getDatabaseName(dbName);
         String connName = readonly ? "RO_" + dbName : "RW_" + dbName;
@@ -1005,14 +1009,14 @@ public class CapacitorSQLite {
                 if (values.length() > 0) {
                     try {
                         ArrayList<Object> arrValues = uSqlite.objectJSArrayToArrayList(values);
-                        res = db.selectSQL(statement, arrValues);
+                        res = db.selectSQL(statement, arrValues, arrayMode);
                         return res;
                     } catch (Exception e) {
                         throw new Exception(e.getMessage());
                     }
                 } else {
                     try {
-                        res = db.selectSQL(statement, new ArrayList<>());
+                        res = db.selectSQL(statement, new ArrayList<>(), arrayMode);
                         return res;
                     } catch (Exception e) {
                         throw new Exception(e.getMessage());
@@ -1026,6 +1030,15 @@ public class CapacitorSQLite {
             String msg = "No available connection for database " + dbName;
             throw new Exception(msg);
         }
+    }
+
+    public JSObject executeStatement(String dbName, String statement, JSArray values) throws Exception {
+        String name = getDatabaseName(dbName);
+        Database db = dbDict.get("RW_" + name);
+        if (db == null || !db.isOpen()) {
+            throw new Exception("No open read-write connection for database " + name);
+        }
+        return db.executeStatement(statement, uSqlite.objectJSArrayToArrayList(values));
     }
 
     public JSArray getTableList(String dbName, Boolean readonly) throws Exception {

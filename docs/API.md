@@ -227,6 +227,7 @@ Note that in general in SQLite this is not recommended, since it makes your quer
 * [`executeSet(...)`](#executeset)
 * [`run(...)`](#run)
 * [`query(...)`](#query)
+* [`executeStatement(...)`](#executestatement)
 * [`isDBExists(...)`](#isdbexists)
 * [`isDBOpen(...)`](#isdbopen)
 * [`isDatabaseEncrypted(...)`](#isdatabaseencrypted)
@@ -691,6 +692,26 @@ Query a Single Statement
 **Returns:** <code>Promise&lt;<a href="#capsqlitevalues">capSQLiteValues</a>&gt;</code>
 
 **Since:** 0.0.1
+
+--------------------
+
+
+### executeStatement(...)
+
+```typescript
+executeStatement(options: capSQLiteStatementOptions) => Promise<capSQLiteChanges>
+```
+
+Execute one statement exactly as supplied, with bound parameters.
+No implicit transaction, sync-table rewriting or RETURNING emulation is applied.
+Use query with rowMode 'array' for statements returning rows.
+Supported on Android and iOS.
+
+| Param         | Type                                                                            |
+| ------------- | ------------------------------------------------------------------------------- |
+| **`options`** | <code><a href="#capsqlitestatementoptions">capSQLiteStatementOptions</a></code> |
+
+**Returns:** <code>Promise&lt;<a href="#capsqlitechanges">capSQLiteChanges</a>&gt;</code>
 
 --------------------
 
@@ -1361,13 +1382,23 @@ Check if a non conformed database exists without connection
 
 #### capSQLiteQueryOptions
 
-| Prop            | Type                 | Description                                          | Since         |
-| --------------- | -------------------- | ---------------------------------------------------- | ------------- |
-| **`database`**  | <code>string</code>  | The database name                                    |               |
-| **`statement`** | <code>string</code>  | A statement                                          |               |
-| **`values`**    | <code>any[]</code>   | A set of values for a statement Change to any[]      | 3.0.0-beta.11 |
-| **`readonly`**  | <code>boolean</code> | ReadOnly / ReadWrite default ReadWrite (false)       | 4.1.0-7       |
-| **`isSQL92`**   | <code>boolean</code> | Compatibility SQL92 !!! ELECTRON ONLY default (true) | 5.0.7         |
+| Prop            | Type                             | Description                                                                                                                                                                                                                        | Since         |
+| --------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| **`rowMode`**   | <code>'object' \| 'array'</code> | Result representation. Defaults to 'object' for compatibility. 'array' preserves SQL column order and duplicate names, with no iOS metadata row. Array mode is supported on Android and iOS; other platforms reject it explicitly. |               |
+| **`database`**  | <code>string</code>              | The database name                                                                                                                                                                                                                  |               |
+| **`statement`** | <code>string</code>              | A statement                                                                                                                                                                                                                        |               |
+| **`values`**    | <code>any[]</code>               | A set of values for a statement Change to any[]                                                                                                                                                                                    | 3.0.0-beta.11 |
+| **`readonly`**  | <code>boolean</code>             | ReadOnly / ReadWrite default ReadWrite (false)                                                                                                                                                                                     | 4.1.0-7       |
+| **`isSQL92`**   | <code>boolean</code>             | Compatibility SQL92 !!! ELECTRON ONLY default (true)                                                                                                                                                                               | 5.0.7         |
+
+
+#### capSQLiteStatementOptions
+
+| Prop            | Type                |
+| --------------- | ------------------- |
+| **`database`**  | <code>string</code> |
+| **`statement`** | <code>string</code> |
+| **`values`**    | <code>any[]</code>  |
 
 
 #### capSQLiteTableOptions
