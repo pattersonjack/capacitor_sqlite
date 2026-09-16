@@ -358,6 +358,13 @@ public class Database {
     public void close() throws Exception {
         if (_db.isOpen()) {
             try {
+                // SQLCipher keeps a pooled connection acquired while a transaction is
+                // active. Closing the pool alone leaves its locks alive. Unfinished
+                // transactions have not been marked successful, so ending them rolls
+                // back before close and also releases the session's connection.
+                while (_db.inTransaction()) {
+                    _db.endTransaction();
+                }
                 _db.close();
                 _isOpen = false;
                 return;
